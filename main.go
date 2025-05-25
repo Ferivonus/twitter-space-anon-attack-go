@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,19 +15,18 @@ import (
 )
 
 const (
-	driverPath = `C:\Users\fahre\Desktop\yazilim\chromedriver_win32\chromedriver.exe`
-	basePort   = 9515 // portlar buradan başlayıp +i olarak gidecek
-	threads    = 40   // kaç paralel oturum
+	basePort = 9515 // portlar buradan başlayıp +i olarak gidecek
+	threads  = 40   // kaç paralel oturum
 )
 
 // worker, verilen Space URL'i kullanarak oturum açar ve dinleme başlatır
-func worker(id, port int, spaceURL string, wg *sync.WaitGroup) {
+func worker(id, port int, driverPath, spaceURL string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	// ChromeDriver servisini başlat
 	service, err := selenium.NewChromeDriverService(driverPath, port)
 	if err != nil {
-		log.Printf("[Thread %02d] Servis başlatılamadı (port %d): %v\n", id, port, err)
+		log.Printf("[Thread %02d] Servis başlatılamadı (port %d): %v", id, port, err)
 		return
 	}
 	defer service.Stop()
@@ -42,14 +42,14 @@ func worker(id, port int, spaceURL string, wg *sync.WaitGroup) {
 	url := fmt.Sprintf("http://localhost:%d/wd/hub", port)
 	wd, err := selenium.NewRemote(caps, url)
 	if err != nil {
-		log.Printf("[Thread %02d] WebDriver’a bağlanılamadı: %v\n", id, err)
+		log.Printf("[Thread %02d] WebDriver’a bağlanılamadı: %v", id, err)
 		return
 	}
 	defer wd.Quit()
 
 	// Space peek sayfasına git
 	if err := wd.Get(spaceURL); err != nil {
-		log.Printf("[Thread %02d] Sayfa yüklenemedi: %v\n", id, err)
+		log.Printf("[Thread %02d] Sayfa yüklenemedi: %v", id, err)
 		return
 	}
 
@@ -59,24 +59,32 @@ func worker(id, port int, spaceURL string, wg *sync.WaitGroup) {
 	// "Anonim olarak dinlemeye başla" butonunu bul ve tıkla
 	btn, err := wd.FindElement(
 		selenium.ByXPATH,
-		`//span[contains(text(), 'Anonim olarak dinlemeye başla')]`,
+		"//span[contains(text(), 'Anonim olarak dinlemeye başla')]",
 	)
 	if err != nil {
-		log.Printf("[Thread %02d] Buton bulunamadı: %v\n", id, err)
+		log.Printf("[Thread %02d] Buton bulunamadı: %v", id, err)
 		return
 	}
 	if err := btn.Click(); err != nil {
-		log.Printf("[Thread %02d] Butona tıklama hatası: %v\n", id, err)
+		log.Printf("[Thread %02d] Butona tıklama hatası: %v", id, err)
 		return
 	}
-	log.Printf("[Thread %02d] Butona tıklandı, dinleme başladı.\n", id)
+	log.Printf("[Thread %02d] Butona tıklandı, dinleme başladı.", id)
 
 	// İstediğin süre kadar bekle
 	time.Sleep(30 * time.Second)
-	log.Printf("[Thread %02d] Bekleme tamamlandı, çıkılıyor.\n", id)
+	log.Printf("[Thread %02d] Bekleme tamamlandı, çıkılıyor.", id)
 }
 
 func main() {
+	// chromedriver.exe, çalıştırılabilir dosyanın bulunduğu dizinde olmalı
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Fatalf("Executable path alınamadı: %v", err)
+	}
+	exeDir := filepath.Dir(exePath)
+	driverPath := filepath.Join(exeDir, "chromedriver.exe")
+
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("Lütfen Twitter Spaces peek linkini girin: ")
 	input, err := reader.ReadString('\n')
@@ -90,7 +98,7 @@ func main() {
 
 	for i := 0; i < threads; i++ {
 		port := basePort + i
-		go worker(i+1, port, spaceURL, &wg)
+		go worker(i+1, port, driverPath, spaceURL, &wg)
 	}
 
 	wg.Wait()
